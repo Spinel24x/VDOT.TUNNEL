@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-VDOT Web Proxy – WebSocket tunnel + built-in web interface.
-Guaranteed HTTP response.
+VDOT Web Proxy – WebSocket tunnel + web interface.
 """
 import asyncio
 import json
@@ -19,7 +18,7 @@ logger = logging.getLogger("vdot-web")
 PORT = int(os.environ.get("PORT", "8080"))
 WS_PATH = "/ws"
 
-# Load HTML once at startup
+# Load HTML page
 try:
     with open("index.html", "r", encoding="utf-8") as f:
         INDEX_HTML = f.read().encode("utf-8")
@@ -48,7 +47,6 @@ async def handle_ws(websocket, path):
                     headers.pop(h, None)
                 async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                     resp = await client.request(method, url, headers=headers, content=body)
-                    # Simplify: always return text (for web pages)
                     try:
                         text = resp.text
                     except Exception:
@@ -68,20 +66,17 @@ async def handle_ws(websocket, path):
         logger.info("WebSocket closed")
 
 async def process_request(connection, request):
-    """Serve index.html for any non-WebSocket HTTP request."""
+    """Serve index.html for non-WebSocket requests."""
     logger.info(f"HTTP request: {request.path}")
     if request.path == WS_PATH:
-        return None  # WebSocket upgrade
+        return None  # allow WebSocket upgrade
+    # Use respond without headers to avoid library incompatibility
     try:
-        headers = {
-            "Content-Type": "text/html; charset=utf-8",
-            "Content-Length": str(len(INDEX_HTML)),
-            "Connection": "close"
-        }
-        return (200, headers, INDEX_HTML)
+        await connection.respond(200, INDEX_HTML)
     except Exception as e:
-        logger.error(f"process_request error: {e}")
-        return (500, {}, b"Internal Server Error")
+        logger.error(f"Failed to respond: {e}")
+        # Fallback: close connection
+        await connection.close(1011, "Internal error")
 
 async def main():
     logger.info(f"Starting on port {PORT}")
