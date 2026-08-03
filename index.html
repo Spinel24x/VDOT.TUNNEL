@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VDOT Web Browser</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; display: flex; flex-direction: column; height: 100vh; }
+        #toolbar { display: flex; padding: 10px; background: #16213e; gap: 10px; align-items: center; }
+        #urlbar { flex: 1; padding: 10px 15px; border: none; border-radius: 20px; background: #0f3460; color: #eee; font-size: 16px; outline: none; }
+        #goBtn { padding: 10px 20px; background: #e94560; color: white; border: none; border-radius: 20px; font-size: 16px; cursor: pointer; }
+        #goBtn:hover { background: #c23152; }
+        #status { margin-left: 10px; font-size: 14px; color: #aaa; }
+        #content { flex: 1; background: white; border: none; }
+        iframe { width: 100%; height: 100%; border: none; }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <input type="text" id="urlbar" placeholder="Enter URL (https://youtube.com)" value="https://youtube.com">
+        <button id="goBtn" onclick="navigate()">Browse</button>
+        <span id="status">Not connected</span>
+    </div>
+    <div id="content">
+        <iframe id="frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+    </div>
+
+    <script>
+        const WS_URL = `wss://${location.host}/ws`;
+        let socket;
+
+        function connect() {
+            socket = new WebSocket(WS_URL);
+            socket.onopen = () => {
+                document.getElementById('status').innerText = 'Connected';
+                // Auto-load default URL
+                navigate();
+            };
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.error) {
+                        document.getElementById('status').innerText = `Error: ${data.error}`;
+                        return;
+                    }
+                    // Inject the returned HTML into the iframe
+                    const iframe = document.getElementById('frame');
+                    const blob = new Blob([data.body], {type: 'text/html'});
+                    iframe.src = URL.createObjectURL(blob);
+                    document.getElementById('status').innerText = `Loaded (${data.status})`;
+                } catch (e) {
+                    document.getElementById('status').innerText = 'Invalid response';
+                }
+            };
+            socket.onclose = () => {
+                document.getElementById('status').innerText = 'Disconnected. Reconnecting...';
+                setTimeout(connect, 3000);
+            };
+            socket.onerror = () => {
+                document.getElementById('status').innerText = 'Connection error';
+            };
+        }
+
+        function navigate() {
+            let url = document.getElementById('urlbar').value.trim();
+            if (!url) return;
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+            }
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = {
+                    url: url,
+                    method: 'GET',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
+                    }
+                };
+                socket.send(JSON.stringify(request));
+                document.getElementById('status').innerText = 'Loading...';
+            }
+        }
+
+        // Start connection
+        connect();
+    </script>
+</body>
+</html>
