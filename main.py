@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 VDOT Web Proxy – WebSocket tunnel + web interface.
+Uses send_response / send for reliable HTTP delivery.
 """
 import asyncio
 import json
@@ -18,13 +19,13 @@ logger = logging.getLogger("vdot-web")
 PORT = int(os.environ.get("PORT", "8080"))
 WS_PATH = "/ws"
 
-# Load HTML page as bytes
+# Load HTML page
 try:
     with open("index.html", "rb") as f:
         INDEX_HTML = f.read()
 except Exception as e:
     logger.error(f"Cannot read index.html: {e}")
-    INDEX_HTML = b"<html><body><h1>Error loading page</h1></body></html>"
+    INDEX_HTML = b"<html><body><h1>Error</h1></body></html>"
 
 async def handle_ws(websocket, path):
     if path != WS_PATH:
@@ -42,7 +43,6 @@ async def handle_ws(websocket, path):
                 method = req.get("method", "GET")
                 headers = req.get("headers", {})
                 body = req.get("body")
-                # Remove problematic headers
                 for h in ["Host", "Connection", "Transfer-Encoding", "Upgrade"]:
                     headers.pop(h, None)
                 async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
@@ -66,16 +66,26 @@ async def handle_ws(websocket, path):
         logger.info("WebSocket closed")
 
 async def process_request(connection, request):
-    """Serve index.html for non-WebSocket requests using tuple response."""
+    """Manually send HTTP response using send_response / send."""
     logger.info(f"HTTP request: {request.path}")
     if request.path == WS_PATH:
-        return None  # allow WebSocket upgrade
+        return None  # let websockets upgrade
+
     headers = {
         "Content-Type": "text/html; charset=utf-8",
         "Content-Length": str(len(INDEX_HTML)),
         "Connection": "close"
     }
-    return (200, headers, INDEX_HTML)
+    try:
+        # send_response is async in websockets >= 12.0
+        await connection.send_response(200, "OK", headers)
+        await connection.send(INDEX_HTML)
+        # After sending, we tell websockets not to send anything else
+        return None
+    except Exception as e:
+        logger.error(f"Failed to send response: {e}")
+        await connection.close(1011, "Internal error")
+        return None
 
 async def main():
     logger.info(f"Starting on port {PORT}")
