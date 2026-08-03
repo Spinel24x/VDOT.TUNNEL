@@ -18,10 +18,10 @@ logger = logging.getLogger("vdot-web")
 PORT = int(os.environ.get("PORT", "8080"))
 WS_PATH = "/ws"
 
-# Load HTML page
+# Load HTML page as bytes
 try:
-    with open("index.html", "r", encoding="utf-8") as f:
-        INDEX_HTML = f.read().encode("utf-8")
+    with open("index.html", "rb") as f:
+        INDEX_HTML = f.read()
 except Exception as e:
     logger.error(f"Cannot read index.html: {e}")
     INDEX_HTML = b"<html><body><h1>Error loading page</h1></body></html>"
@@ -66,17 +66,16 @@ async def handle_ws(websocket, path):
         logger.info("WebSocket closed")
 
 async def process_request(connection, request):
-    """Serve index.html for non-WebSocket requests."""
+    """Serve index.html for non-WebSocket requests using tuple response."""
     logger.info(f"HTTP request: {request.path}")
     if request.path == WS_PATH:
         return None  # allow WebSocket upgrade
-    # Use respond without headers to avoid library incompatibility
-    try:
-        await connection.respond(200, INDEX_HTML)
-    except Exception as e:
-        logger.error(f"Failed to respond: {e}")
-        # Fallback: close connection
-        await connection.close(1011, "Internal error")
+    headers = {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": str(len(INDEX_HTML)),
+        "Connection": "close"
+    }
+    return (200, headers, INDEX_HTML)
 
 async def main():
     logger.info(f"Starting on port {PORT}")
